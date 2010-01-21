@@ -164,7 +164,7 @@ def main(args):
     parser.add_option("-d", "--debug",
             action="store_true", dest="debug", default=False,
             help="turn on debugging to csb.log")
-    parser.add_option("-y",
+    parser.add_option("-y", "--yes",
             action="store_true", dest="yes", default=False,
             help="Do things without confirming")
     (options, args) = parser.parse_args()
@@ -172,7 +172,7 @@ def main(args):
     if len(args) == 1:
         options.fname = args[0]
     else:
-        options.fname = raw_input("Enter database path: ")
+        options.fname = raw_input("Enter database uri: ")
 
     if options.debug:
         logging.basicConfig(
