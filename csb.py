@@ -7,12 +7,14 @@ import curses
 import sys
 import signal
 import os
-import csui
 import math
 import re
 from optparse import OptionParser
 import logging
 import tempfile
+
+sys.path.append("/usr/share/csb/")
+import csui
 
 version = "0.1"
 
