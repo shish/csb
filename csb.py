@@ -2,7 +2,6 @@
 
 from __future__ import with_statement
 
-import sqlite3
 import curses
 import sys
 import signal
@@ -12,6 +11,7 @@ import re
 from optparse import OptionParser
 import logging
 import tempfile
+import adodb
 
 sys.path.append("/usr/share/csb/")
 import csui
@@ -43,17 +43,15 @@ class dbcur:
         self.fname = fname
 
     def __enter__(self):
-        self.conn = sqlite3.connect(self.fname)
-        self.c = self.conn.cursor()
-        return self.c
+        self.conn = adodb.NewADOConnection(self.fname)
+        return self.conn
 
     def __exit__(self, extype, value, traceback):
-        self.c.close()
         if extype:
-            self.conn.rollback()
+            self.conn.RollbackTrans()
         else:
-            self.conn.commit()
-        self.conn.close()
+            self.conn.CommitTrans()
+        self.conn.Close()
 
 def do_outside_curses(func, *args, **kw):
     """
@@ -105,10 +103,32 @@ def rowsafe(text, maxlen):
 
 # database abstraction
 
-def get_tables(cur):
-    res = cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = list([row[0] for row in res])
-    return tables
+def get_dbapi(cur):
+    try:
+        import sqlite3
+        if cur.Module() == sqlite3: return "sqlite3"
+    except: pass
+
+    try:
+        import psycopg
+        if cur.Module() == psycopg: return "postgres"
+    except: pass
+
+    return None
+
+def get_tables(conn):
+    api = get_dbapi(conn)
+    if api == "sqlite3":
+        return conn.GetCol("SELECT name FROM sqlite_master WHERE type='table'")
+    elif api == "postgres":
+        return conn.GetCol("SELECT tablename FROM pg_tables WHERE tablename !~* 'pg_*'")
+
+def get_col_names(conn):
+    api = get_dbapi(cur)
+    if api == "sqlite3":
+        col_names = [tup[1] for tup in cur.MetaColumns(table)]
+    elif api == "postgres":
+        col_names = [tup[0] for tup in cur.MetaColumns(table)]
 
 # functions
 
@@ -154,7 +174,7 @@ def edit(stdscr, cur, table, col_names, col_values, col, external):
     query = "UPDATE %s SET %s=? WHERE %s" % (table, col, ands)
     args = [val, ]
     args.extend(largs)
-    cur.execute(query, args)
+    cur.Execute(query, args)
     logging.info(query)
 
 def main(args):
@@ -227,10 +247,10 @@ def main_loop(cur, stdscr, options):
 
         query = "SELECT * FROM %s LIMIT %d,%d" % (table, page_size*page, page_size)
         if query != last_query:
-            page_count = math.ceil(float(list(cur.execute("SELECT count(*) FROM %s" % table))[0][0]) / page_size)
-            res = list(cur.execute(query))
+            page_count = math.ceil(float(list(cur.Execute("SELECT count(*) FROM %s" % table))[0][0]) / page_size)
+            res = list(cur.SelectLimit("SELECT * FROM %s" % table, page_size, page_size*page))
             row_count = len(res)
-            col_names = [tup[0] for tup in cur.description]
+            col_names = get_col_names(cur, table)
             last_query = query
             col_width = (width-1)/len(col_names)
 
@@ -314,13 +334,13 @@ def main_loop(cur, stdscr, options):
                 qs.append("?")
             query = "INSERT INTO %s(%s) VALUES (%s)" % (table, ", ".join(col_names), ", ".join(qs))
             if options.yes or csui.confirm(stdscr, [query, str(vals)]):
-                cur.execute(query, vals)
+                cur.Execute(query, vals)
                 last_query = None
         elif c == curses.KEY_DC or c == ord('d'):
             (ands, args) = make_limiter(col_names, res[selected_row])
             query = "DELETE FROM %s WHERE %s" % (table, ands)
             if options.yes or csui.confirm(stdscr, [query, str(args)]):
-                cur.execute(query, args)
+                cur.Execute(query, args)
                 last_query = None
         elif c == curses.KEY_ENTER or c == ord('v'):
             csui.alert(stdscr, "Viewing Row",
