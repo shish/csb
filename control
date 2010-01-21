@@ -1,0 +1,10 @@
+Package: csb
+Version: VERSION
+Section: misc
+Priority: optional
+Architecture: all
+Depends: python (>=2.5)
+Recommends: python-mysqldb
+Maintainer: Shish Moom <shish@shishnet.org>
+Description: Curses SQL Browser
+ A curses-based browser and editor for SQL databases
