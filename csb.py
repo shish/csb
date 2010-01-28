@@ -184,6 +184,8 @@ def main(args):
     #        help="set the default column width to COLS", metavar="COLS")
     parser.add_option("-t", "--table", dest="table", default=None,
             help="start with table NAME open", metavar="NAME")
+    parser.add_option("-f", "--file", dest="dbfile", default=None,
+            help="read the DB URI from a file", metavar="FILE")
     parser.add_option("-d", "--debug",
             action="store_true", dest="debug", default=False,
             help="turn on debugging to csb.log")
@@ -194,6 +196,8 @@ def main(args):
 
     if len(args) == 1:
         options.fname = args[0]
+    elif options.dbfile:
+        options.fname = file(options.dbfile).read().strip()
     else:
         options.fname = raw_input("Enter database uri: ")
 
