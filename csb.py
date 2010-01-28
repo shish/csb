@@ -265,8 +265,8 @@ def main_loop(cur, stdscr, options):
         # draw data
 
         # magic
-        title = "%s (%s) -- Page %d/%d -- CSB %s" % (
-                options.fname, table, page+1, page_count, version)
+        title = "%s -- Page %d/%d -- CSB %s" % (
+                table, page+1, page_count, version)
         csui.set_title(title)
         stdscr.refresh() # this makes things work and I don't know why
 
