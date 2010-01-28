@@ -121,7 +121,7 @@ def get_tables(conn):
     if api == "sqlite3":
         return conn.GetCol("SELECT name FROM sqlite_master WHERE type='table'")
     elif api == "postgres":
-        return conn.GetCol("SELECT tablename FROM pg_tables WHERE tablename !~* 'pg_*'")
+        return conn.GetCol("SELECT tablename FROM pg_tables WHERE tablename !~* 'pg_*' AND tablename !~* 'sql_*'")
 
 def get_col_names(conn, table):
     api = get_dbapi(conn)
