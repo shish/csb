@@ -123,12 +123,13 @@ def get_tables(conn):
     elif api == "postgres":
         return conn.GetCol("SELECT tablename FROM pg_tables WHERE tablename !~* 'pg_*'")
 
-def get_col_names(conn):
-    api = get_dbapi(cur)
+def get_col_names(conn, table):
+    api = get_dbapi(conn)
     if api == "sqlite3":
-        col_names = [tup[1] for tup in cur.MetaColumns(table)]
+        col_names = [tup[1] for tup in conn.MetaColumns(table)]
     elif api == "postgres":
-        col_names = [tup[0] for tup in cur.MetaColumns(table)]
+        col_names = [tup[0] for tup in conn.MetaColumns(table)]
+    return col_names
 
 # functions
 
