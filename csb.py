@@ -198,6 +198,8 @@ def main(args):
         options.fname = args[0]
     elif options.dbfile:
         options.fname = file(options.dbfile).read().strip()
+    elif os.path.exists("/etc/csb.conf"):
+        options.fname = file("/etc/csb.conf").read().strip()
     else:
         options.fname = raw_input("Enter database uri: ")
 
