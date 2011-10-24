@@ -11,7 +11,7 @@ import re
 from optparse import OptionParser
 import logging
 import tempfile
-import adodb
+from urlparse import urlparse
 
 sys.path.append("/usr/share/csb/")
 import csui
@@ -21,7 +21,7 @@ version = "0.1"
 
 # these should be part of their libraries
 
-class screen:
+class screen(object):
     def __init__(self):
         self.stdscr = None
 
@@ -38,20 +38,30 @@ class screen:
         curses.echo()
         curses.endwin()
 
-class dbcur:
+class dbapi(object):
     def __init__(self, fname):
         self.fname = fname
 
+    def _init_postgres(self, url):
+        import psycopg2
+        m = re.match("(.*):(.*)@(.*)", url.netloc)
+        if m:
+            conn_string = "host='%s' dbname='%s' user='%s' password='%s'" % (m.group(3), url.path[1:], m.group(1), m.group(2))
+            self.conn = psycopg2.connect(conn_string)
+
     def __enter__(self):
-        self.conn = adodb.NewADOConnection(self.fname)
-        return self.conn
+        url = urlparse(self.fname)
+        self.proto = url.scheme
+        if url.scheme in ["postgresql", "postgres", "pgsql", "psql"]:
+            self._init_postgres(url)
+        return self
 
     def __exit__(self, extype, value, traceback):
         if extype:
-            self.conn.RollbackTrans()
+            self.conn.rollback()
         else:
-            self.conn.CommitTrans()
-        self.conn.Close()
+            self.conn.commit()
+        self.conn.close()
 
 def do_outside_curses(func, *args, **kw):
     """
@@ -103,33 +113,26 @@ def rowsafe(text, maxlen):
 
 # database abstraction
 
-def get_dbapi(cur):
-    try:
-        import sqlite3
-        if cur.Module() == sqlite3: return "sqlite3"
-    except: pass
+def get_tables(api):
+    if api.proto == "sqlite3":
+	cur = api.conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        rows = cur.fetchall()
+    elif api.proto == "postgres":
+	cur = api.conn.cursor()
+        cur.execute("SELECT tablename FROM pg_tables WHERE tablename !~* 'pg_*' AND tablename !~* 'sql_*'")
+        rows = cur.fetchall()
+    return [r[0] for r in rows]
 
-    try:
-        import psycopg
-        if cur.Module() == psycopg: return "postgres"
-    except: pass
-
-    return None
-
-def get_tables(conn):
-    api = get_dbapi(conn)
-    if api == "sqlite3":
-        return conn.GetCol("SELECT name FROM sqlite_master WHERE type='table'")
-    elif api == "postgres":
-        return conn.GetCol("SELECT tablename FROM pg_tables WHERE tablename !~* 'pg_*' AND tablename !~* 'sql_*'")
-
-def get_col_names(conn, table):
-    api = get_dbapi(conn)
-    if api == "sqlite3":
-        col_names = [tup[1] for tup in conn.MetaColumns(table)]
-    elif api == "postgres":
-        col_names = [tup[0] for tup in conn.MetaColumns(table)]
-    return col_names
+def get_col_names(api, table):
+    if api.proto == "sqlite3":
+        #col_names = [tup[1] for tup in conn.MetaColumns(table)]
+        pass
+    elif api.proto == "postgres":
+	cur = api.conn.cursor()
+        cur.execute("SELECT attname FROM pg_attribute, pg_class WHERE pg_class.oid = attrelid AND attnum>0 AND relname = '%s';" % table)
+        rows = cur.fetchall()
+    return [r[0] for r in rows]
 
 # functions
 
@@ -216,24 +219,24 @@ def main(args):
             )
 
     try:
-        with dbcur(options.fname) as cur:
-            tables = get_tables(cur)
+        with dbapi(options.fname) as api:
+            tables = get_tables(api)
             if len(tables) == 0:
                 print "No tables in database"
                 return 1
             if not options.table or options.table not in tables:
-                options.table = get_tables(cur)[0]
+                options.table = get_tables(api)[0]
             with screen() as stdscr:
                 csui.curs_set(False)
                 curses.mousemask(0xFFFFFFF)
-                main_loop(cur, stdscr, options)
+                main_loop(api, stdscr, options)
     except KeyboardInterrupt:
         print "Exited without committing changes"
         return 2
 
     return 0
 
-def main_loop(cur, stdscr, options):
+def main_loop(api, stdscr, options):
     table = options.table
     selected_row = 0
     selected_col = 0
@@ -242,6 +245,7 @@ def main_loop(cur, stdscr, options):
     col_names = []
     last_query = None
     grid = None
+    cur = api.conn.cursor()
     while True:
         #=============================================================
         # calculate useful things
@@ -254,10 +258,12 @@ def main_loop(cur, stdscr, options):
 
         query = "SELECT * FROM %s LIMIT %d,%d" % (table, page_size*page, page_size)
         if query != last_query:
-            page_count = math.ceil(float(list(cur.Execute("SELECT count(*) FROM %s" % table))[0][0]) / page_size)
-            res = list(cur.SelectLimit("SELECT * FROM %s" % table, page_size, page_size*page))
+            cur.execute("SELECT count(*) FROM %s" % table)
+            page_count = math.ceil(float(cur.fetchone()[0]) / page_size)
+            cur.execute("SELECT * FROM %s LIMIT %d OFFSET %d" % (table, page_size, page_size*page))
+            res = cur.fetchall()
             row_count = len(res)
-            col_names = get_col_names(cur, table)
+            col_names = get_col_names(api, table)
             last_query = query
             col_width = (width-1)/len(col_names)
 
@@ -303,7 +309,7 @@ def main_loop(cur, stdscr, options):
             if options.yes or csui.confirm(stdscr, "Exit without saving?"):
                 raise KeyboardInterrupt
         elif c == ord('t'):
-            tables = get_tables(cur)
+            tables = get_tables(api)
             table = tables[csui.choose_option(stdscr, "Pick a table", tables)]
         # grid
         elif c == curses.KEY_UP:    selected_row = selected_row - 1
